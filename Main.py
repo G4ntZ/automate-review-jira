@@ -6,6 +6,9 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from monitor import BambooBuildMonitor
+from requests.exceptions import RequestException
+from utils import capture_screenshots_with_cookies
+from upload_file import upload_files_to_jira
 
 # Consulta JQL
 URL_PATTERN_BITBUCKET = r'https://bitbucket\.org/[^\s"\'{}]+'
@@ -25,12 +28,15 @@ def load_config(config_file='config.ini'):
     jira_url = config.get('jira', 'url')
     jira_token = config.get('jira', 'token')
     jira_email = config.get('jira', 'email')
-    bitbucket_app_password = config.get('bitbucket', 'app_password')
     bitbucket_token = config.get('bitbucket', 'token')
     bamboo_user = config.get('bamboo', 'user')
     bamboo_password = config.get('bamboo', 'password')
+    edge_driver_path = config.get('edge', 'edge_driver_path')
+    edge_user_data_dir = config.get('edge', 'edge_user_data_dir')
+    edge_profile_directory = config.get('edge', 'edge_profile_directory')
 
-    return jira_url, jira_token, jira_email, bitbucket_app_password, bitbucket_token, bamboo_user, bamboo_password
+
+    return jira_url, jira_token, jira_email, bitbucket_token, bamboo_user, bamboo_password, edge_driver_path, edge_user_data_dir, edge_profile_directory
 
 
 def search_issues(jira_url, jira_token, jira_email):
@@ -466,19 +472,43 @@ def print_bamboo_url_states(build_states):
         n_url = url.split('/')
         print(f"http://bamboo.afphabitat.net:8085/browse/{n_url[7]}")
 
+def get_sonar_urls(results_plan, bamboo_user, bamboo_password):
+    sonar_base_url="http://sonar.afphabitat.net:9000/dashboard"
+    sonar_urls = []
+    for result in results_plan:
+        n_url = result.split('/')
+        result = n_url[7]
+        descript = result.split('-')
+        codi = f'{descript[0]}-{descript[1]}'
+        num = f'{descript[2]}'
+        url = f'http://bamboo.afphabitat.net:8085/download/{codi}-SON/build_logs/{codi}-SON-{num}.log'
+        try:
+            response = requests.get(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
+            if response.status_code == 200:
+                # Buscar las URLs que comienzan con la base de Sonar
+                sonar_urls_in_log = re.findall(rf"{re.escape(sonar_base_url)}\S+", response.text)
+                
+                # Agregar las URLs encontradas a la lista general
+                sonar_urls.extend(sonar_urls_in_log)
+            else:
+                print(f"No se encontro job sonar para el resultado {url} correspondiente a la ejecion {result}")
+        except RequestException as e:
+            print(f"Excepción durante la solicitud HTTP para {url}: {e}")
+    return sonar_urls
+
+def print_sonar_url(sonar_urls):
+    for sonar_url in sonar_urls:
+        print(sonar_url)
+
 def main_test():
     """Función principal para buscar issues y cambiar el estado del primero encontrado."""
-    jira_url, jira_token, jira_email, bitbucket_app_password, bitbucket_token, bamboo_user, bamboo_password = load_config()
+    jira_url, jira_token, jira_email, bitbucket_token, bamboo_user, bamboo_password, edge_driver_path, edge_user_data_dir, edge_profile_directory = load_config()
     
     issues = search_issues(jira_url, jira_token, jira_email)
 
     if issues:
-        #print(f"Se encontraron {len(issues)} issues:")
         for issue in issues:
             key = issue.get('key')
-            summary = issue.get('fields', {}).get('summary')
-            #print(f"- {key}: {summary}")
-            # obtener planes bamboo desde isntrucciones de isntalacion customfield_10084
             pull_requests = get_pull_request_paths(key, jira_url, jira_token, jira_email)
             api_prs = transform_pr_to_api(pull_requests)
             info_pull_requests = get_info_pull_requests(api_prs, bitbucket_token)
@@ -494,10 +524,8 @@ def main_test():
 
                 if tipo == 'back' or tipo == 'front':
                     for url_plan_bamboo in urls_plan_bamboo:
-
                         plan_key = url_plan_bamboo.split('/')[4]
                         plan_desde_pauta = extraer_short_name(plan_key, bamboo_user, bamboo_password)
-
                         if plan_desde_pauta.lower() == component.lower():
                             plan_key_branch = obtener_url_rama_bamboo(plan_key, source_branch, bamboo_user, bamboo_password)
                             print(f"Añadiendo a lista de ejecucion: {component} {plan_key_branch}")
@@ -507,8 +535,6 @@ def main_test():
                                 'source_branch': source_branch,
                                 'tipo': tipo
                             })
-                            #queued_build = ejecutar_plan_bamboo(plan_key_branch, source_branch, bamboo_user, bamboo_password)
-                            #print(queued_build)
             queued_build_list = []
             if len(pipelines_back_list) > 0:
                 for pipelines_back in pipelines_back_list:
@@ -525,6 +551,11 @@ def main_test():
                 build_states = monitor.build_states
                 print_build_states(build_states=build_states)
                 print_bamboo_url_states(build_states=build_states)
+                sonar_urls = get_sonar_urls(build_states, bamboo_user, bamboo_password)
+                print_sonar_url(sonar_urls)
+                temp_dir = capture_screenshots_with_cookies(edge_driver_path, edge_user_data_dir, edge_profile_directory, sonar_urls)
+                upload_files_to_jira(jira_url, key, jira_email, jira_token, temp_dir)
+                    
             except KeyboardInterrupt:
                 print("\nPrograma interrumpido manualmente. Cerrando...")
             
