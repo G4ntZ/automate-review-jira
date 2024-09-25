@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from monitor import BambooBuildMonitor
 from requests.exceptions import RequestException
 from utils import capture_screenshots_with_cookies
+from utils import kill_edge_processes
 from upload_file import upload_files_to_jira
 
 # Consulta JQL
@@ -500,6 +501,80 @@ def print_sonar_url(sonar_urls):
     for sonar_url in sonar_urls:
         print(sonar_url)
 
+def is_branch_enabled(bamboo_user, bamboo_password, plan_key, branch_name):
+        """
+        Verifica si una rama está habilitada en Bamboo para un plan específico.
+        
+        :param plan_key: Clave del plan de Bamboo (ej. PROJ-PLAN).
+        :param branch_name: Nombre de la rama que deseas verificar.
+        :return: True si la rama está habilitada, False en caso contrario.
+        """
+        try:
+            # URL para obtener las ramas de un plan
+            url = f"http://bamboo.afphabitat.net:8085/rest/api/latest/plan/{plan_key}/branch.json"
+            response = requests.get(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
+            response.raise_for_status()
+
+            branches_info = response.json()
+
+            # Recorremos las ramas y verificamos si el nombre coincide
+            branch_name = branch_name.replace('/','-')
+            for branch in branches_info['branches']['branch']:
+                #print(f'{branch['shortName']} == {branch_name}')
+                if branch['shortName'] == branch_name:
+                    print(f"Rama '{branch_name}' encontrada en el plan '{plan_key}'.")
+                    return branch['enabled']
+
+            print(f"Rama '{branch_name}' no encontrada en el plan '{plan_key}'.")
+            return False  # Si no se encuentra la rama, consideramos que no está habilitada.
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error al consultar las ramas del plan {plan_key}: {e}")
+            return False
+
+def enable_branch(bamboo_user, bamboo_password, plan_key, branch_name):
+        """
+        Habilita una nueva rama en Bamboo para un plan específico.
+        
+        :param plan_key: Clave del plan de Bamboo (ej. PROJ-PLAN).
+        :param branch_name: Nombre de la rama a habilitar.
+        :return: True si la rama fue habilitada exitosamente, False en caso de error.
+        """
+        try:
+            branch_name = branch_name.replace('/','-')
+            # URL para crear una nueva rama en un plan
+            # http://bamboo.afphabitat.net:8085/rest/api/latest/plan/NSWSB-CFQA/branch/bugfix-bps-merge?vcsBranch=bugfix-bps-merge.json
+            url = f"http://bamboo.afphabitat.net:8085/rest/api/latest/plan/{plan_key}/branch/{branch_name}?vcsBranch={branch_name}"
+
+
+            response = requests.put(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
+            response.raise_for_status()
+
+            if response.status_code == 200:
+                print(f"Rama '{branch_name}' habilitada exitosamente en el plan '{plan_key}'.")
+                return True
+            else:
+                print(f"Error al habilitar la rama '{branch_name}' en el plan '{plan_key}'. Código de estado: {response.status_code}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error al intentar habilitar la rama '{branch_name}' en el plan {plan_key}: {e}")
+            return False
+        
+def validate_branch(bamboo_user, bamboo_password, plan_key, source_branch):
+    is_enabled = is_branch_enabled(bamboo_user, bamboo_password, plan_key, source_branch)
+
+    if not is_enabled:
+        print(f"La rama '{source_branch}' no está habilitada. Intentando habilitarla...")
+        # Intentar habilitar la rama si no está habilitada
+        success = enable_branch(bamboo_user, bamboo_password, plan_key, source_branch)
+        if success:
+            print(f"Rama '{source_branch}' habilitada exitosamente.")
+        else:
+            print(f"Fallo al habilitar la rama '{source_branch}'.")
+    else:
+        print(f"La rama '{source_branch}' ya está habilitada.")    
+
 def main_test():
     """Función principal para buscar issues y cambiar el estado del primero encontrado."""
     jira_url, jira_token, jira_email, bitbucket_token, bamboo_user, bamboo_password, edge_driver_path, edge_user_data_dir, edge_profile_directory = load_config()
@@ -527,6 +602,9 @@ def main_test():
                         plan_key = url_plan_bamboo.split('/')[4]
                         plan_desde_pauta = extraer_short_name(plan_key, bamboo_user, bamboo_password)
                         if plan_desde_pauta.lower() == component.lower():
+
+                            validate_branch(bamboo_user, bamboo_password, plan_key, source_branch)
+
                             plan_key_branch = obtener_url_rama_bamboo(plan_key, source_branch, bamboo_user, bamboo_password)
                             print(f"Añadiendo a lista de ejecucion: {component} {plan_key_branch}")
                             pipelines_back_list.append({
@@ -539,6 +617,7 @@ def main_test():
             if len(pipelines_back_list) > 0:
                 for pipelines_back in pipelines_back_list:
                     print(f'{pipelines_back['plan_key_branch']} {pipelines_back['source_branch']}')
+                    #
                     queued_build = ejecutar_plan_bamboo(pipelines_back['plan_key_branch'], pipelines_back['source_branch'], bamboo_user, bamboo_password)
                     queued_build_list.append(queued_build)
             else:
@@ -553,6 +632,7 @@ def main_test():
                 print_bamboo_url_states(build_states=build_states)
                 sonar_urls = get_sonar_urls(build_states, bamboo_user, bamboo_password)
                 print_sonar_url(sonar_urls)
+                kill_edge_processes()
                 temp_dir = capture_screenshots_with_cookies(edge_driver_path, edge_user_data_dir, edge_profile_directory, sonar_urls)
                 upload_files_to_jira(jira_url, key, jira_email, jira_token, temp_dir)
                     

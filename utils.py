@@ -8,6 +8,36 @@ from selenium import webdriver
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 import tempfile
+import psutil
+
+def kill_edge_processes():
+    """
+    Verifica si el proceso msedge.exe (Microsoft Edge) está en ejecución.
+    Si está corriendo, lo termina.
+    """
+    edge_process_name = "msedge.exe"
+    edge_processes = []
+    
+    # Buscar todos los procesos activos
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            # Si el proceso es msedge.exe, lo agrega a la lista
+            if proc.info['name'] == edge_process_name:
+                edge_processes.append(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    if edge_processes:
+        print(f"Se encontraron {len(edge_processes)} procesos de Microsoft Edge. Finalizando procesos...")
+        for proc in edge_processes:
+            try:
+                proc.terminate()  # Intentar finalizar el proceso de forma educada
+                proc.wait(timeout=3)  # Esperar hasta 3 segundos para que termine
+                print(f"Proceso {proc.pid} ({proc.name()}) finalizado.")
+            except (psutil.NoSuchProcess, psutil.TimeoutExpired, psutil.AccessDenied) as e:
+                print(f"No se pudo finalizar el proceso {proc.pid}: {e}")
+    else:
+        print("No se encontraron procesos de Microsoft Edge en ejecución.")
 
 def generate_random_folder_name(length=8):
     """Genera un nombre aleatorio para la carpeta."""
