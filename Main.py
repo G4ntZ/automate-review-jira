@@ -10,6 +10,7 @@ from requests.exceptions import RequestException
 from utils import capture_screenshots_with_cookies
 from utils import kill_edge_processes
 from upload_file import upload_files_to_jira
+import urllib.parse
 
 # Consulta JQL
 URL_PATTERN_BITBUCKET = r'https://bitbucket\.org/[^\s"\'{}]+'
@@ -542,6 +543,7 @@ def enable_branch(bamboo_user, bamboo_password, plan_key, branch_name):
         """
         try:
             branch_name = branch_name.replace('/','-')
+            branch_name = urllib.parse.quote(branch_name)
             # URL para crear una nueva rama en un plan
             # http://bamboo.afphabitat.net:8085/rest/api/latest/plan/NSWSB-CFQA/branch/bugfix-bps-merge?vcsBranch=bugfix-bps-merge.json
             url = f"http://bamboo.afphabitat.net:8085/rest/api/latest/plan/{plan_key}/branch/{branch_name}?vcsBranch={branch_name}"
@@ -598,21 +600,24 @@ def main_test():
                 print(f'{url_pull_request} {source_branch} {tipo} {state}')
 
                 if tipo == 'back' or tipo == 'front':
-                    for url_plan_bamboo in urls_plan_bamboo:
-                        plan_key = url_plan_bamboo.split('/')[4]
-                        plan_desde_pauta = extraer_short_name(plan_key, bamboo_user, bamboo_password)
-                        if plan_desde_pauta.lower() == component.lower():
+                    if state == 'OPEN':
+                        for url_plan_bamboo in urls_plan_bamboo:
+                            plan_key = url_plan_bamboo.split('/')[4]
+                            plan_desde_pauta = extraer_short_name(plan_key, bamboo_user, bamboo_password)
+                            if plan_desde_pauta.lower() == component.lower():
 
-                            validate_branch(bamboo_user, bamboo_password, plan_key, source_branch)
+                                validate_branch(bamboo_user, bamboo_password, plan_key, source_branch)
 
-                            plan_key_branch = obtener_url_rama_bamboo(plan_key, source_branch, bamboo_user, bamboo_password)
-                            print(f"Añadiendo a lista de ejecucion: {component} {plan_key_branch}")
-                            pipelines_back_list.append({
-                                'component': component,
-                                'plan_key_branch': plan_key_branch,
-                                'source_branch': source_branch,
-                                'tipo': tipo
-                            })
+                                plan_key_branch = obtener_url_rama_bamboo(plan_key, source_branch, bamboo_user, bamboo_password)
+                                print(f"Añadiendo a lista de ejecucion: {component} {plan_key_branch}")
+                                pipelines_back_list.append({
+                                    'component': component,
+                                    'plan_key_branch': plan_key_branch,
+                                    'source_branch': source_branch,
+                                    'tipo': tipo
+                                })
+                    else:
+                        print(f"Se omite {component} ya que pull request se encuentra en estado merged")
             queued_build_list = []
             if len(pipelines_back_list) > 0:
                 for pipelines_back in pipelines_back_list:
