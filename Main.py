@@ -11,6 +11,7 @@ from utils import capture_screenshots_with_cookies
 from utils import kill_edge_processes
 from upload_file import upload_files_to_jira
 import urllib.parse
+from notify import show_notification
 
 # Consulta JQL
 URL_PATTERN_BITBUCKET = r'https://bitbucket\.org/[^\s"\'{}]+'
@@ -627,6 +628,7 @@ def main_test():
                     queued_build_list.append(queued_build)
             else:
                 print("No hay planes back por ejecutar")
+                show_notification("No hay planes back por ejecutar.", "error")
 
             monitor = BambooBuildMonitor(api_urls=queued_build_list, bamboo_user=bamboo_user, bamboo_passowrd=bamboo_password)
             try:
@@ -640,6 +642,7 @@ def main_test():
                 kill_edge_processes()
                 temp_dir = capture_screenshots_with_cookies(edge_driver_path, edge_user_data_dir, edge_profile_directory, sonar_urls)
                 upload_files_to_jira(jira_url, key, jira_email, jira_token, temp_dir)
+                show_notification("Programa terminado exitosamente", "info")
                     
             except KeyboardInterrupt:
                 print("\nPrograma interrumpido manualmente. Cerrando...")

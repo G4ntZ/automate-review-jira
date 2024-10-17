@@ -73,6 +73,7 @@ def capture_screenshots_with_cookies(edge_driver_path, edge_user_data_dir, edge_
     for url in urls:
         driver.get(url)
         print(f"Abriendo {url} con sesión existente")
+        driver.maximize_window()
         time.sleep(10)  # Esperar para que la página cargue completamente
 
 
