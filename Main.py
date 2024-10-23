@@ -484,19 +484,21 @@ def get_sonar_urls(results_plan, bamboo_user, bamboo_password):
         descript = result.split('-')
         codi = f'{descript[0]}-{descript[1]}'
         num = f'{descript[2]}'
-        url = f'http://bamboo.afphabitat.net:8085/download/{codi}-SON/build_logs/{codi}-SON-{num}.log'
-        try:
-            response = requests.get(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
-            if response.status_code == 200:
-                # Buscar las URLs que comienzan con la base de Sonar
-                sonar_urls_in_log = re.findall(rf"{re.escape(sonar_base_url)}\S+", response.text)
-                
-                # Agregar las URLs encontradas a la lista general
-                sonar_urls.extend(sonar_urls_in_log)
-            else:
-                print(f"No se encontro job sonar para el resultado {url} correspondiente a la ejecion {result}")
-        except RequestException as e:
-            print(f"Excepción durante la solicitud HTTP para {url}: {e}")
+        jobs = ['SON', 'AN']
+        for job in jobs:
+            url = f'http://bamboo.afphabitat.net:8085/download/{codi}-{job}/build_logs/{codi}-{job}-{num}.log'
+            try:
+                response = requests.get(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
+                if response.status_code == 200:
+                    # Buscar las URLs que comienzan con la base de Sonar
+                    sonar_urls_in_log = re.findall(rf"{re.escape(sonar_base_url)}\S+", response.text)
+                    
+                    # Agregar las URLs encontradas a la lista general
+                    sonar_urls.extend(sonar_urls_in_log)
+                else:
+                    print(f"No se encontro job sonar para el resultado {url} correspondiente a la ejecion {result}")
+            except RequestException as e:
+                print(f"Excepción durante la solicitud HTTP para {url}: {e}")
     return sonar_urls
 
 def print_sonar_url(sonar_urls):
@@ -543,11 +545,10 @@ def enable_branch(bamboo_user, bamboo_password, plan_key, branch_name):
         :return: True si la rama fue habilitada exitosamente, False en caso de error.
         """
         try:
-            branch_name = branch_name.replace('/','-')
-            branch_name = urllib.parse.quote(branch_name)
+            branch = branch_name.replace('/','-')
             # URL para crear una nueva rama en un plan
             # http://bamboo.afphabitat.net:8085/rest/api/latest/plan/NSWSB-CFQA/branch/bugfix-bps-merge?vcsBranch=bugfix-bps-merge.json
-            url = f"http://bamboo.afphabitat.net:8085/rest/api/latest/plan/{plan_key}/branch/{branch_name}?vcsBranch={branch_name}"
+            url = f"http://bamboo.afphabitat.net:8085/rest/api/latest/plan/{plan_key}/branch/{branch}?vcsBranch={branch_name}"
 
 
             response = requests.put(url, auth=HTTPBasicAuth(bamboo_user, bamboo_password))
